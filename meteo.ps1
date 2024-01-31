@@ -1,6 +1,5 @@
 
 $userProfilePath = $env:USERPROFILE
-$debug=0
 
 function Normalize {
     param (
@@ -76,11 +75,55 @@ if (-not (Test-Path $userProfilePath"\.meteorc")) {
 
 $meteoAPI = Invoke-RestMethod -Uri "https://danepubliczne.imgw.pl/api/data/synop" -Method Get
 
-if (-not (Test-Path ".\cityCash.json")){
-    Write-Host "pierwsze uruchomienie potrwa ponad minute z powodu ograniczen nalozonych przez https://nominatim.org/ prosze o cierpliwosc :)"
-    "{}" | Out-File -FilePath ".\cityCash.json"
+$cityCashFilePath = ".\cityCash.txt"
+
+if (Test-Path $cityCashFilePath) {
+    $cityCash = Get-Content -Path $cityCashFilePath
 }
-$cityCash = Get-Content ".\cityCash.json" | ConvertFrom-Json
+
+function CacheContains($nazwaMiasta) {
+    foreach ($line in $cityCash) {
+        # Split the line using whitespace as the delimiter
+        $parts = $line -split '\s+'
+
+        if ($parts[0] -eq $nazwaMiasta){return 1}
+    }
+    return 0
+}
+function CityX($nazwaMiasta) {
+    foreach ($line in $cityCash) {
+        # Split the line using whitespace as the delimiter
+        $parts = $line -split '\s+'
+
+        if ($parts[0] -eq $nazwaMiasta){
+            return [double]$parts[1]
+        }
+    }
+}
+function CityY($nazwaMiasta) {
+    foreach ($line in $cityCash) {
+        # Split the line using whitespace as the delimiter
+        $parts = $line -split '\s+'
+
+        if ($parts[0] -eq $nazwaMiasta){
+            return [double]$parts[2]
+        }
+    }
+}
+
+function AddCity($nazwaMiasta, $x, $y) {
+    $line = "$nazwaMiasta $x $y"
+    $line | Out-File -FilePath $cityCashFilePath -Append -Encoding utf8
+}
+
+function WriteAll {
+    foreach ($line in $cityCash) {
+        # Split the line using whitespace as the delimiter
+        $parts = $line -split '\s+'
+
+        Write-Host $parts[0] [double]$parts[1] [double]$parts[2]
+    }
+}
 
 for ($i = 0; $i -le $meteoAPI.Length; $i++){
     if ($i -eq $meteoAPI.Length){
@@ -91,24 +134,56 @@ for ($i = 0; $i -le $meteoAPI.Length; $i++){
     }
     $normalizedCityName = Normalize -string $cityName
 
-    if (-not ($cityCash -contains $normalizedCityName)){
-        $cityData = Invoke-RestMethod -Uri "https://nominatim.openstreetmap.org/search?country=Poland&city='$normalizedCityName'&limit=1&format=geojson"# -Headers @{ "User-Agent" = "Mozilla/5.0" }
-        #$cityCash[$normalizedCityName] = "$cityData.features[0].geometry.coordinates[0]"
-        $cityCash | Add-Member -MemberType NoteProperty -Name $normalizedCityName -Value @{
-            "x" = $cityData.features[0].geometry.coordinates[0]
-            "y" = $cityData.features[0].geometry.coordinates[0]
-        }
-        $cityCash | ConvertTo-Json | Out-File ".\cityCash.json"
+    if(-not (CacheContains -nazwaMiasta $normalizedCityName)){
+        Write-Host "caching "$normalizedCityName
+        $cityAPI = Invoke-RestMethod -Uri "https://nominatim.openstreetmap.org/search?country=Poland&city='$normalizedCityName'&limit=1&format=geojson"# -Headers @{ "User-Agent" = "Mozilla/5.0" }
+        AddCity -nazwaMiasta $normalizedCityName -x $cityAPI.features[0].geometry.coordinates[0] -y $cityAPI.features[0].geometry.coordinates[1]
+        $cityCash = Get-Content -Path $cityCashFilePath
+        Start-Sleep -Seconds 1
     }
-    Write-Host kesz $cityCash.$normalizedCityName
-    
-    #$cityData = Invoke-RestMethod -Uri "https://nominatim.openstreetmap.org/search?country=Poland&city='$normalizedCityName'&limit=1&format=geojson"# -Headers @{ "User-Agent" = "Mozilla/5.0" }
-    #Write-Host $normalizedCityName
-    #Write-Host $cityData.features[0].geometry.coordinates[0]
-
-
-
-    #Write-Host $cityCash["Bydgoszcz"]
-
-    Start-Sleep -Seconds 1
+    else{
+        Write-Host "already cached" $normalizedCityName
+    }
 }
+
+$normalizedHomeCity = Normalize -string $homeCity
+
+$shortCity = $meteoAPI[0].stacja
+
+
+for ($i = 1; $i -lt $meteoAPI.Length; $i++){
+    
+    $cityName = $meteoAPI[$i].stacja
+    $normalizedCityName = Normalize -string $cityName
+
+    $deltax = (CityX -nazwaMiasta $normalizedHomeCity) - (CityX -nazwaMiasta $normalizedCityName)
+    $deltay = (CityY -nazwaMiasta $normalizedHomeCity) - (CityY -nazwaMiasta $normalizedCityName)
+    $dist = $deltax*$deltax + $deltay*$deltay
+
+    $normalizedShortCity = Normalize -string $shortCity
+
+    $deltax = (CityX -nazwaMiasta $normalizedHomeCity) - (CityX -nazwaMiasta $normalizedShortCity)
+    $deltay = (CityY -nazwaMiasta $normalizedHomeCity) - (CityY -nazwaMiasta $normalizedShortCity)
+
+    $shortDist = $deltax*$deltax + $deltay*$deltay
+
+    if($dist -lt $shortDist){
+        $shortCity = $cityName
+    }
+
+}
+
+
+for ($i = 0; $i -le $meteoAPI.Length; $i++){
+    if($shortCity -eq $meteoAPI[$i].stacja){
+        Write-Host $shortCity '['$meteoAPI[$i].id_stacji'] /'$meteoAPI[$i].data_pomiaru $meteoAPI[$i].godzina_pomiaru": 00"
+        Write-Host "temperatura:" $meteoAPI[$i].temperatura "°C" -Encoding UTF8
+        Write-Host "predkosc wiatru:" $meteoAPI[$i].predkosc_wiatru "m/s"
+        Write-Host "kierunek_wiatru:" $meteoAPI[$i].kierunek_wiatru "°"
+        Write-Host "wilgotnosc wzgledna:" $meteoAPI[$i].wilgotnosc_wzgledna "%"
+        Write-Host "sumaopadu:" $meteoAPI[$i].suma_opadu "mm"
+        Write-Host "cisnienie:" $meteoAPI[$i].cisnienie "hPa"
+        exit 0
+    }
+}
+
