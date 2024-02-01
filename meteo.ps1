@@ -1,5 +1,4 @@
-﻿
-$userProfilePath = $env:USERPROFILE
+﻿$userProfilePath = $env:USERPROFILE
 $debug=0
 function Normalize {
     param (
