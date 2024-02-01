@@ -1,6 +1,6 @@
 
 $userProfilePath = $env:USERPROFILE
-
+$debug=0
 function Normalize {
     param (
         [string]$string
@@ -52,30 +52,38 @@ else {
 }
 
 
-Write-Host $userProfilePath"\.cache\meteo"
-$cacheFilePath = Join-Path $userProfilePath ".meteorc"
+Write-Host $userProfilePath"\.meteorc"
 
-if (-not (Test-Path $userProfilePath"\.meteorc")) {
+if (-not (Test-Path $userProfilePath"\.meteorc")){
+    "$userProfilePath\.cache\meteo" | Out-File $userProfilePath"\.meteorc"
+}
+$cashePath = Get-Content $userProfilePath"\.meteorc"
 
-    Write-Host "No cache file"
-
-    # Create the cache file with default values
-    $cacheContent = @{
-        cashpath = (Join-Path $userProfilePath ".cache\meteo\")
-    } | ConvertTo-Json
-
-    $cacheContent | Set-Content -Path $cacheFilePath
-
-    # Create the cache directory
-    $cacheDirectory = Join-Path $userProfilePath ".cache\meteo"
-    if (-not (Test-Path -Path $cacheDirectory)) {
-        New-Item -ItemType Directory -Path $cacheDirectory | Out-Null
-    }
+if (-not (Test-Path -Path $cashePath)) {
+    New-Item -ItemType Directory -Path $cashePath | Out-Null
 }
 
-$meteoAPI = Invoke-RestMethod -Uri "https://danepubliczne.imgw.pl/api/data/synop" -Method Get
+Write-Host $cashePath
 
-$cityCashFilePath = ".\cityCash.txt"
+if ((Test-Path "$cashePath\meteoTime.txt") -and (Test-Path "$cashePath\meteoCache.json")) {
+    if ((Get-Content "$cashePath\meteoTime.txt") -eq (Get-Date -Format "yyyyMMddHH")){
+        $meteoAPI = Get-Content "$cashePath\meteoCache.json" | ConvertFrom-Json
+    }
+    else{
+        $meteoAPI = Invoke-RestMethod -Uri "https://danepubliczne.imgw.pl/api/data/synop" -Method Get
+        $meteoAPI | ConvertTo-Json | Out-File "$cashePath\meteoCache.json"
+        Get-Date -Format "yyyyMMddHH" | Out-File "$cashePath\meteoTime.txt"
+    }
+}
+else{
+    $meteoAPI = Invoke-RestMethod -Uri "https://danepubliczne.imgw.pl/api/data/synop" -Method Get
+    $meteoAPI | ConvertTo-Json | Out-File "$cashePath\meteoCache.json"
+    Get-Date -Format "yyyyMMddHH" | Out-File "$cashePath\meteoTime.txt"
+}
+
+
+
+$cityCashFilePath = "$cashePath\cityCash.txt"
 
 if (Test-Path $cityCashFilePath) {
     $cityCash = Get-Content -Path $cityCashFilePath
@@ -135,14 +143,14 @@ for ($i = 0; $i -le $meteoAPI.Length; $i++){
     $normalizedCityName = Normalize -string $cityName
 
     if(-not (CacheContains -nazwaMiasta $normalizedCityName)){
-        Write-Host "caching "$normalizedCityName
+        if ($debug -eq 1){Write-Host "caching "$normalizedCityName}
         $cityAPI = Invoke-RestMethod -Uri "https://nominatim.openstreetmap.org/search?country=Poland&city='$normalizedCityName'&limit=1&format=geojson"# -Headers @{ "User-Agent" = "Mozilla/5.0" }
         AddCity -nazwaMiasta $normalizedCityName -x $cityAPI.features[0].geometry.coordinates[0] -y $cityAPI.features[0].geometry.coordinates[1]
         $cityCash = Get-Content -Path $cityCashFilePath
         Start-Sleep -Seconds 1
     }
     else{
-        Write-Host "already cached" $normalizedCityName
+        if ($debug -eq 1){Write-Host "already cached" $normalizedCityName}
     }
 }
 
@@ -167,6 +175,8 @@ for ($i = 1; $i -lt $meteoAPI.Length; $i++){
 
     $shortDist = $deltax*$deltax + $deltay*$deltay
 
+    if ($debug -eq 1){Write-Host "comparing" $cityName "with" $shortCity}
+
     if($dist -lt $shortDist){
         $shortCity = $cityName
     }
@@ -177,7 +187,7 @@ for ($i = 1; $i -lt $meteoAPI.Length; $i++){
 for ($i = 0; $i -le $meteoAPI.Length; $i++){
     if($shortCity -eq $meteoAPI[$i].stacja){
         Write-Host $shortCity '['$meteoAPI[$i].id_stacji'] /'$meteoAPI[$i].data_pomiaru $meteoAPI[$i].godzina_pomiaru": 00"
-        Write-Host "temperatura:" $meteoAPI[$i].temperatura "°C" -Encoding UTF8
+        Write-Host "temperatura:" $meteoAPI[$i].temperatura "°C"
         Write-Host "predkosc wiatru:" $meteoAPI[$i].predkosc_wiatru "m/s"
         Write-Host "kierunek_wiatru:" $meteoAPI[$i].kierunek_wiatru "°"
         Write-Host "wilgotnosc wzgledna:" $meteoAPI[$i].wilgotnosc_wzgledna "%"
