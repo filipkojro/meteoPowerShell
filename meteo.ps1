@@ -1,4 +1,4 @@
-
+﻿
 $userProfilePath = $env:USERPROFILE
 $debug=0
 function Normalize {
@@ -51,9 +51,6 @@ else {
     $homeCity=$args[0]
 }
 
-
-Write-Host $userProfilePath"\.meteorc"
-
 if (-not (Test-Path $userProfilePath"\.meteorc")){
     "$userProfilePath\.cache\meteo" | Out-File $userProfilePath"\.meteorc"
 }
@@ -63,7 +60,6 @@ if (-not (Test-Path -Path $cashePath)) {
     New-Item -ItemType Directory -Path $cashePath | Out-Null
 }
 
-Write-Host $cashePath
 
 if ((Test-Path "$cashePath\meteoTime.txt") -and (Test-Path "$cashePath\meteoCache.json")) {
     if ((Get-Content "$cashePath\meteoTime.txt") -eq (Get-Date -Format "yyyyMMddHH")){
